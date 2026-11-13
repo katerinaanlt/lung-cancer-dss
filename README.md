@@ -1,64 +1,141 @@
-# lung-cancer-dss
-This is my thesis, a year-long project of research and coding. This is the project I am most proud of
-# Lung Cancer Risk Clinical Decision Support System (CDSS)
-
-An end-to-end Machine Learning Clinical Decision Support System (CDSS) designed for primary care triage and early risk stratification of lung cancer using non-invasive epidemiological, lifestyle, environmental, and clinical parameters.
+# 🫁 Lung Cancer Risk Clinical Decision Support System (CDSS)
 
 > **BSc Thesis Project**  
-> **Title:** Ανάπτυξη μοντέλου διάγνωσης για καρκίνο του πνεύμονα, με τεχνικές τεχνητής νοημοσύνης (*Development of a diagnostic model for lung cancer using Artificial Intelligence techniques*)  
+> **Title:** Development of a Lung Cancer Diagnosis Model Using Artificial Intelligence Techniques  
 > **Author:** Aikaterini Analyti (inf2022010)  
 > **Supervisor:** Assoc. Prof. Themistoklis Exarchos  
-> **Committee:** Assoc. Prof. Themistoklis Exarchos, Prof. Panagiotis Vlamos, Asst. Prof. Marios Krokidis  
-> **Institution:** Ionian University, Department of Informatics
+> **Institution:** Department of Informatics, Ionian University  
 
 ---
 
-## Overview
+## 📖 Introduction
 
-More than 50% of lung cancer cases are diagnosed at an advanced or metastatic stage, where the 5-year survival rate drops below 10% (compared to >63% when detected at a localized stage). This project provides a **Clinical Decision Support System (CDSS)** tailored for primary care physicians to rapidly evaluate patients during initial consultations and identify high-risk individuals who should be referred for confirmatory imaging such as Low-Dose Computed Tomography (LDCT).
+Lung cancer remains the leading cause of cancer-related mortality worldwide, accounting for approximately 2.5 million new cases and 1.8 million deaths annually (GLOBOCAN). The primary clinical challenge driving this high mortality rate is not solely the biological aggressiveness of the malignancy, but the timing of its detection. Because the lungs lack internal pain receptors and early-stage symptoms (such as a mild cough or fatigue) are largely non-specific and easily misattributed to common respiratory infections or smoking habits, over 50% of patients are diagnosed at an advanced or metastatic stage. Statistical data from the SEER program highlights a stark survival gap: while the 5-year survival rate for Non-Small Cell Lung Cancer (NSCLC) exceeds 63% when detected at a localized stage, it plummets to below 10% once distant metastasis has occurred.
 
-### Key Methodological Highlights
-* **Elimination of Data Leakage via Explainable AI (SHAP):** Initial exploratory modeling on all 29 features revealed target leakage from post-diagnostic/paraclinical variables (`xray_abnormal`, `crp_level`, `copd`, `fev1_x10`) using **TreeSHAP** analysis. Removing these 4 proxy features ensured compliance with **TRIPOD** guidelines for primary care prediction models, relying strictly on 25 first-line non-invasive indicators.
-* **Three-Tier Microservices Architecture:** Strict separation of concerns across the Presentation Tier (**Streamlit**), Business Logic & Data Validation Firewall Tier (**FastAPI** + **Pydantic**), and ML Serving Tier (**Scikit-Learn Pipeline** + **XGBoost** serialized via **Joblib**).
-* **Zero-Configuration Reproducibility:** Fully containerized using **Docker** and orchestrated via **Docker Compose** for seamless deployment in clinical environments.
+In primary care settings, physicians are tasked with synthesizing a complex array of heterogeneous patient data—ranging from quantified smoking exposure (pack-years) and environmental hazards (radon, air pollution) to subtle clinical symptoms—under significant time constraints. This project addresses this diagnostic bottleneck by developing a machine learning-driven **Clinical Decision Support System (CDSS)** designed for primary care triage. Rather than replacing clinical judgment, this tool acts as an objective, non-invasive screening mechanism that evaluates 25 first-line patient parameters in real time. Its goal is to stratify patient risk early, ensuring high-risk individuals are promptly referred for confirmatory Low-Dose CT (LDCT) imaging while sparing low-risk patients from unnecessary radiation and invasive procedures.
 
 ---
 
-## Model Performance (10-Fold Stratified Cross-Validation)
+## 🔬 Methodology
 
-Models were evaluated across 5,000 patient profiles using 10-fold Stratified Cross-Validation. Below is the comparison before and after removing the 4 data-leakage features:
+The development of the system followed a structured, four-stage pipeline adhering to international biomedical prediction standards (TRIPOD statement):
 
-| Dataset State | Algorithm | Accuracy | Precision | Recall (Sensitivity) | F1-Score |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **With Data Leakage** *(29 features)* | Decision Tree | 94.64% | 89.61% | 88.75% | 89.18% |
-| | Random Forest | 96.40% | 93.27% | 92.44% | 92.85% |
-| | **XGBoost** | **97.68%** | **95.85%** | **94.77%** | **95.31%** |
-| **No Data Leakage** *(25 features - Final)* | Decision Tree | 93.70% | 87.37% | 87.30% | 87.34% |
-| | Random Forest | 95.38% | 91.15% | 90.19% | 90.66% |
-| | **XGBoost (Selected)** | **95.64%** | **91.17%** | **91.32%** | **91.24%** |
+1. **Exploratory Data Analysis (EDA) & Preprocessing:**  
+   Utilized a dataset of $5,000$ patient records (`lung_cancer.csv`) originally comprising 30 demographic, lifestyle, environmental, and clinical variables. Categorical binary and ordinal features were systematically mapped using `OrdinalEncoder`, while continuous numerical features were preserved in their natural scale via a unified `Scikit-learn` `ColumnTransformer` pipeline.
+2. **Explainable AI (XAI) & Feature Pruning:**  
+   Baseline models were initially trained on all 29 input features and audited using **TreeSHAP** (SHapley Additive exPlanations) to quantify each variable's marginal contribution to the prediction and screen for post-diagnostic bias.
+3. **Model Training & Stratified Validation:**  
+   Evaluated three tree-based architectures of increasing complexity: **Decision Trees**, **Random Forest**, and **Extreme Gradient Boosting (XGBoost)**. Models were assessed using Stratified 10-Fold Cross-Validation, prioritizing **Recall (Sensitivity)** and **F1-Score** to minimize clinically dangerous False Negatives.
+4. **Three-Tier System Architecture & Containerization:**  
+   The optimal XGBoost pipeline was serialized via `Joblib` and deployed within a decoupled, three-tier microservices architecture:
+   * **Presentation Tier:** An ergonomic, 4-column clinical web interface built with **Streamlit**.
+   * **Application/Logic Tier:** An asynchronous RESTful API powered by **FastAPI** and **Pydantic**.
+   * **Deployment:** Containerized using **Docker** and orchestrated via **Docker Compose** for zero-configuration clinical deployment.
 
-* **Sensitivity (Recall) - High Risk Class:** `91.32%` (False Negative Rate limited to `8.68%`)
-* **Specificity - Low Risk Class:** `97.07%` (False Positive Rate limited to `2.93%`)
+### 📊 Model Performance (10-Fold Cross-Validation)
+
+| Dataset State | Algorithm | Accuracy | Precision | Recall (Sensitivity) | Specificity | F1-Score |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **With Data Leakage** *(29 features)* | XGBoost | 97.68% | 95.85% | 94.77% | — | 95.31% |
+| **Clean Triage Pipeline** *(25 features)* | Decision Tree | 93.70% | 87.37% | 87.30% | — | 87.34% |
+| **Clean Triage Pipeline** *(25 features)* | Random Forest | 95.38% | 91.15% | 90.19% | — | 90.66% |
+| **Clean Triage Pipeline** *(25 features)* | **XGBoost (Final)** | **95.64%** | **91.17%** | **91.32%** | **97.07%** | **91.24%** |
 
 ---
 
-## System Architecture & Features
+## 🛠️ How Key Challenges Were Tackled
 
-### Input Parameters (25 First-Line Features)
-The Pydantic validation schema strictly enforces the 25 non-invasive features, grouped into four clinical categories in the UI:
-1. **Demographics & Vitals:** `age`, `gender`, `bmi`, `oxygen_saturation`, `education_years`, `income_level`
-2. **Smoking History:** `smoker`, `smoking_years`, `cigarettes_per_day`, `pack_years`, `passive_smoking`
-3. **Environmental & Medical History:** `air_pollution_index`, `occupational_exposure`, `radon_exposure`, `family_history_cancer`, `asthma`, `previous_tb`
-4. **Symptoms & Lifestyle:** `chronic_cough`, `chest_pain`, `shortness_of_breath`, `fatigue`, `exercise_hours_per_week`, `diet_quality`, `alcohol_units_per_week`, `healthcare_access`
+* **Eliminating Target Data Leakage via SHAP:**  
+  Initial baseline experiments yielded an artificially inflated F1-Score of $95.31\%$. Through **SHAP** analysis, it was proven that the model was heavily relying on four post-diagnostic or specialized clinical proxies: abnormal chest X-rays (`xray_abnormal`), serum C-reactive protein levels (`crp_level`), diagnosed COPD (`copd`), and spirometry forced expiratory volume (`fev1_x10`). Because these metrics are outcomes of secondary diagnostic workups rather than primary triage inputs, they were pruned. Retraining on the 25 strictly non-invasive features yielded a realistic, generalizable F1-Score of $91.24\%$. To prevent leakage in production, a **Pydantic schema firewall** was implemented in the FastAPI backend to strictly validate the 25 allowed features and reject any unauthorized parameters with an `HTTP 422` error.
+* **Handling Class Imbalance Without Synthetic Noise:**  
+  The dataset exhibited a natural $1:3$ class ratio ($24.88\%$ High Risk vs. $75.12\%$ Low Risk). Rather than applying undersampling (which discards valuable clinical records) or synthetic oversampling like SMOTE (which can introduce artificial noise artifacts into sensitive biomedical distributions), the natural epidemiological distribution was preserved. The imbalance was effectively managed using XGBoost's sequential gradient optimization and L2 regularization, achieving a Macro Average F1-Score of $0.94$.
+* **Overcoming Clinical Distrust ("Black-Box" Effect) & UI Fatigue:**  
+  Literature highlights that physicians often resist CDSS tools due to algorithmic opacity and cumbersome interfaces. Using TreeSHAP confirmed that the model's top decision drivers (`pack_years`, `age`, `chronic_cough`, `air_pollution_index`) align directly with established medical literature. Furthermore, the Streamlit UI groups inputs into four logical clinical categories with dynamic biological constraints (e.g., `smoking_years` cannot exceed `age`) and color-coded triage guidance.
+* **Preventing Pipeline Skew & Dependency Drift:**  
+  To avoid data transformation mismatches between training and serving, the `ColumnTransformer` (`OrdinalEncoder` with `unknown_value=-1`) and `XGBClassifier` were bundled into a single `Scikit-learn` `Pipeline` artifact (`xgboost_pipeline.joblib`). The entire application was then containerized into isolated Docker services connected via an internal bridge network (`dss-network`).
 
-### Repository Structure
-```text
-├── api.py                      # FastAPI backend server & Pydantic validation firewall
-├── app.py                      # Streamlit clinical user interface (Frontend)
-├── train_pipeline.py           # Preprocessing (ColumnTransformer) & XGBoost training script
-├── xgboost_pipeline.joblib     # Serialized Scikit-Learn & XGBoost serving artifact
-├── Dockerfile.api              # Docker container specification for the FastAPI backend
-├── Dockerfile.app              # Docker container specification for the Streamlit frontend
-├── docker-compose.yml          # Multi-container orchestration & bridge networking
-├── requirements.txt            # Python package dependencies
-└── README.md                   # Project documentation
+---
+
+## 🚀 How to Run Instructions
+
+### Option 1: Run with Docker Compose (Recommended)
+Docker Compose builds and orchestrates both the FastAPI backend and Streamlit frontend in isolated containers with zero manual configuration.
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/lung-cancer-cdss.git
+   cd lung-cancer-cdss
+   ```
+2. **Build and start the microservices:**
+   ```bash
+   docker compose up --build
+   ```
+3. **Access the services:**
+   * **Clinical Web Interface (Streamlit):** [http://localhost:8501](http://localhost:8501)
+   * **Backend REST API & Swagger Docs (FastAPI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+### Option 2: Run Locally (Python Environment)
+If you prefer to run the services directly on your host machine:
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Start the FastAPI Backend Server (Terminal 1):**
+   ```bash
+   uvicorn api:app --host 0.0.0.0 --port 8000
+   ```
+3. **Launch the Streamlit Frontend (Terminal 2):**
+   *(Note: If running outside Docker, ensure `API_URL` in `app.py` is set to `http://localhost:8000/predict`)*
+   ```bash
+   streamlit run app.py --server.port=8501
+   ```
+
+---
+
+## 📚 Citations & References
+* **[1] National Health Service (NHS)** (2022). *Lung cancer - Overview*.
+* **[2] World Health Organization (WHO)** (2024). *Lung cancer - Key facts and overview*.
+* **[3] American Cancer Society (ACS)** (2024). *What Is Lung Cancer?*.
+* **[4] Centers for Disease Control and Prevention (CDC)** (2024). *What Are the Risk Factors for Lung Cancer?*.
+* **[5] National Cancer Institute (NCI)** (2023). *Non-Small Cell Lung Cancer Treatment (PDQ®) – Patient Version*.
+* **[6] International Agency for Research on Cancer (IARC) - WHO** (2024). *GLOBOCAN: Global Cancer Observatory - Lung Cancer Fact Sheet*.
+* **[7] National Cancer Institute (NCI) - SEER Program** (2024). *Cancer Stat Facts: Lung and Bronchus Cancer*.
+* **[8] Sutton, R. T., Pincock, D., Baumgart, D. C., Sadowski, D. C., Federau, R. N., & Dorcell, T. R.** (2020). *An overview of clinical decision support systems: benefits, risks, and strategies for success*. npj Digital Medicine, 3(1), 17.
+* **[9] Bi, W. L., et al.** (2019). *Artificial intelligence in cancer imaging: Clinical challenges and applications*. CA: A Cancer Journal for Clinicians, 69(2), 127–157.
+* **[10] Klarenbeek, S. E., Schuurbiers-Siebers, O. C. J., van den Heuvel, M. M., Prokop, M., & Tummers, M.** (2021). *Barriers and Facilitators for Implementation of a Computerized Clinical Decision Support System in Lung Cancer Multidisciplinary Team Meetings—A Qualitative Assessment*. Biology, 10(1), 9.
+* **[11] Bisarwal, P., & Chauhan, A.** (2020). *Detection of Lung Cancer using Machine Learning Techniques Based on Routine Blood Indices*. In Proc. 2020 8th Int. Conf. Reliability, Infocom Technologies and Optimization (ICRITO), pp. 696–701.
+* **[12] Çalışkan, M., & Tazaki, K.** (2023). *AI/ML advances in non-small cell lung cancer biomarker discovery*. Frontiers in Oncology, 13, 1260374.
+* **[13] Li, Y., Wu, X., Yang, P., Jiang, G., & Luo, Y.** (2022). *Machine Learning for Lung Cancer Diagnosis, Treatment, and Prognosis*. Genomics, Proteomics & Bioinformatics, 20(5), 850–866.
+* **[14] Cortés-Ibáñez, P. O., et al.** (2023). *Serum-based biomarkers associated with lung cancer risk and cause-specific mortality in the German randomized Lung Cancer Screening Intervention (LUSI) trial*. Translational Lung Cancer Research, 12(12), 2419–2433.
+* **[15] Lundberg, S. M., & Lee, S.-I.** (2017). *A Unified Approach to Interpreting Model Predictions*. In Advances in Neural Information Processing Systems 30 (NeurIPS 2017), pp. 4765–4774.
+* **[16] Kaufman, S., Rosset, S., Perlich, C., & Stitelman, O.** (2012). *Leakage in data mining: Formulation, detection, and avoidance*. ACM Transactions on Knowledge Discovery from Data (TKDD), 6(4), 15.
+* **[17] Chen, T., & Guestrin, C.** (2016). *XGBoost: A Scalable Tree Boosting System*. In Proc. 22nd ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining (KDD '16), pp. 785–794.
+* **[18] Breiman, L.** (2001). *Random Forests*. Machine Learning, 45(1), 5–32.
+* **[19] Gundersen, O. E., & Kjensmo, S.** (2018). *State of the Art: Reproducibility in Artificial Intelligence*. In Proc. 32nd AAAI Conf. Artificial Intelligence (AAAI-18), pp. 1644–1651.
+* **[20] Hastie, T., Tibshirani, R., & Friedman, J.** (2009). *The Elements of Statistical Learning: Data Mining, Inference, and Prediction* (2nd ed.). Springer.
+* **[21] Sokolova, M., & Lapalme, G.** (2009). *A systematic analysis of performance measures for classification tasks*. Information Processing & Management, 45(4), 427–437.
+* **[22] Kelly, C. J., Karthikesalingam, A., Suleyman, M., Corrado, G., & King, D.** (2019). *Key challenges for delivering clinical impact with artificial intelligence*. BMC Medicine, 17(1), 195.
+* **[23] He, H., & Garcia, E. A.** (2009). *Learning from Imbalanced Data*. IEEE Transactions on Knowledge and Data Engineering, 21(9), 1263–1284.
+* **[24] Dritsas, E., & Trigka, M.** (2022). *Lung Cancer Risk Prediction with Machine Learning Models*. Big Data and Cognitive Computing, 6(4), 139.
+* **[25] Collins, G. S., Reitsma, J. B., Altman, D. G., & Moons, K. G.** (2015). *Transparent reporting of a multivariable prediction model for individual prognosis or diagnosis (TRIPOD): the TRIPOD statement*. Annals of Internal Medicine, 162(1), 55–63.
+* **[26] National Lung Screening Trial Research Team** (2011). *Reduced lung-cancer mortality with low-dose computed tomographic screening*. New England Journal of Medicine, 365(5), 395–409.
+* **[27] Kapoor, S., & Narayanan, A.** (2023). *Leakage and the Reproducibility Crisis in Machine-Learning-Based Science*. Patterns, 4(9), 100804.
+* **[28] Lundberg, S. M., et al.** (2020). *From local explanations to global understanding with explainable AI for trees*. Nature Machine Intelligence, 2(1), 56–67.
+* **[29] Shapley, L. S.** (1953). *A Value for n-Person Games*. In Contributions to the Theory of Games (AM-28), Vol. II, pp. 307–318. Princeton University Press.
+* **[30] Moons, K. G., et al.** (2015). *Transparent Reporting of a multivariable prediction model for Individual Prognosis or Diagnosis (TRIPOD): explanation and elaboration*. Annals of Internal Medicine, 162(1), W1–W73.
+* **[31] Friedman, J. H.** (2001). *Greedy function approximation: a gradient boosting machine*. The Annals of Statistics, 29(5), 1189–1232.
+* **[32] Quinlan, J. R.** (1986). *Induction of decision trees*. Machine Learning, 1(1), 81–106.
+* **[33] Martin, R. C.** (2017). *Clean Architecture: A Craftsman's Guide to Software Structure and Design*. Prentice Hall.
+* **[34] Fowler, M.** (2002). *Patterns of Enterprise Application Architecture*. Addison-Wesley Professional.
+* **[35] Streamlit Inc.** (2024). *Streamlit: A faster way to build and share data apps* (Documentation).
+* **[36] Ramírez, S.** (2024). *FastAPI: Modern, Fast (High-Performance) Web Framework for Building APIs with Python* (Documentation).
+* **[37] Colvin, S., et al.** (2024). *Pydantic: Data validation using Python type hints* (Documentation).
+* **[38] Joblib Development Team** (2024). *Joblib: Running Python functions as pipeline jobs* (Documentation).
+* **[39] Boettiger, C.** (2015). *An introduction to Docker for reproducible research*. ACM SIGOPS Operating Systems Review, 49(1), 71–79.
+* **[40] Gruendner, J., et al.** (2019). *KETOS: Clinical decision support and machine learning as a service – A training and deployment platform based on Docker, OMOP-CDM, and FHIR Web Services*. PLOS ONE, 14(10), e0223010.
+* **[41] Merkel, D.** (2014). *Docker: lightweight Linux containers for consistent execution*. Linux Journal, 2014(239), 2.
+* **[42] Docker Inc.** (2024). *Docker Documentation: Accelerated container application development*.
+D. Merkel, "Docker: lightweight Linux containers for consistent execution," Linux Journal, vol. 2014, no. 239, p. 2, 2014.
