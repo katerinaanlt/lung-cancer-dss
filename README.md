@@ -53,7 +53,70 @@ The development of the system followed a structured, four-stage pipeline adherin
   Literature highlights that physicians often resist CDSS tools due to algorithmic opacity and cumbersome interfaces. Using TreeSHAP confirmed that the model's top decision drivers (`pack_years`, `age`, `chronic_cough`, `air_pollution_index`) align directly with established medical literature. Furthermore, the Streamlit UI groups inputs into four logical clinical categories with dynamic biological constraints (e.g., `smoking_years` cannot exceed `age`) and color-coded triage guidance.
 * **Preventing Pipeline Skew & Dependency Drift:**  
   To avoid data transformation mismatches between training and serving, the `ColumnTransformer` (`OrdinalEncoder` with `unknown_value=-1`) and `XGBClassifier` were bundled into a single `Scikit-learn` `Pipeline` artifact (`xgboost_pipeline.joblib`). The entire application was then containerized into isolated Docker services connected via an internal bridge network (`dss-network`).
+## System Architecture & Software Implementation
 
+### 1. Three-Tier Architecture Plan & End-to-End Workflow
+Transitioning a validated machine learning model from a research simulation into daily clinical practice requires more than mathematical accuracy; as highlighted in clinical literature (e.g., Klarenbeek et al.), adoption depends heavily on usability, low latency, and seamless integration into the medical workflow. To achieve this, the Decision Support System (DSS) was engineered using a decoupled **Three-Tier Architecture** rather than a monolithic structure, enforcing a strict separation of concerns across three independent layers:
+* **Presentation Tier (Frontend UI):** Built with **Streamlit**, strictly responsible for user interaction, clinical data collection, and visual triage feedback without executing any underlying algorithmic logic.
+* **Application / Business Logic Tier (Backend API):** An asynchronous RESTful API powered by **FastAPI** and **Pydantic**, acting as the central mediator and data validation firewall.
+* **Data & ML Serving Tier:** A unified, serialized **Scikit-Learn & XGBoost Pipeline** (`joblib`) that handles feature transformation and probability estimation.
+
+**End-to-End Execution Flow:**
+1. The clinician inputs the patient's 25 parameters into the Streamlit form during the consultation.
+2. Streamlit packages the inputs into a structured JSON payload and dispatches an `HTTP POST` request to `http://api:8000/predict`.
+3. FastAPI intercepts the request and validates it against the Pydantic schema. If valid, it passes the data to the loaded ML pipeline; otherwise, it halts execution and returns an `HTTP 422` error.
+4. The pipeline's `ColumnTransformer` encodes the categorical features, and the `XGBClassifier` computes both the binary class (`0` or `1`) and the continuous risk probability via `.predict_proba()`.
+5. The API responds in `<50ms` with a structured JSON object, which Streamlit deserializes to render color-coded clinical triage guidance.
+
+---
+
+### 2. Data & ML Serving Pipeline (`joblib` & `ColumnTransformer`)
+While 10-fold cross-validation was used to evaluate generalizability (achieving 95.64% Accuracy and 91.32% Recall on unseen folds), the final production model was trained on 100% of the cleaned dataset (5,000 records) to maximize pattern recognition prior to deployment. 
+
+To prevent *data skew* or *pipeline breakage* between training and live inference, preprocessing and classification were unified into a single software artifact (`xgboost_pipeline.joblib`):
+* **Feature Separation:** After permanently dropping the 4 data-leakage variables (`xray_abnormal`, `copd`, `crp_level`, `fev1_x10`), the remaining 25 first-line features are split into 15 categorical (nominal/ordinal) and 10 numerical variables.
+* **Automated Preprocessing (`ColumnTransformer`):** Categorical variables are routed through Scikit-Learn's `OrdinalEncoder` configured with `handle_unknown='use_encoded_value'` and `unknown_value=-1` to prevent runtime crashes if an unexpected category is encountered. Numerical variables are set to `passthrough`, as tree-based splits are invariant to monotonic feature scaling.
+* **Serialization:** The `preprocessor` and `XGBClassifier(eval_metric='logloss', random_state=42)` are bound inside a Scikit-Learn `Pipeline` and serialized with `joblib`. It is loaded into RAM once upon server startup, eliminating intermediate data conversion steps during live requests.
+
+---
+
+### 3. Backend Development & Data Validation Firewall (FastAPI & Pydantic)
+The backend service (`api.py`) runs on the ASGI server **Uvicorn**, providing asynchronous request handling and sub-second response times necessary for uninterrupted clinical consultations. It exposes two REST endpoints:
+* `GET /`: A health-check endpoint confirming the server is active and ready to accept classification requests.
+* `POST /predict`: The core inference engine. If the `.joblib` pipeline fails to load at startup, the endpoint safely raises an `HTTP 500 Internal Server Error` rather than attempting unverified predictions.
+
+**The Pydantic Firewall (`PatientData`):**
+In medical informatics, incomplete or noisy inputs can lead to dangerous misclassifications. By inheriting from Pydantic's `BaseModel`, the `PatientData` class enforces strict type hints across all 25 required attributes (`int` and `float`):
+* **Completeness & Type Safety:** If a field is missing or a string is passed instead of a number, FastAPI immediately blocks the request and returns a detailed `HTTP 422 Unprocessable Entity` response.
+* **Leakage Prevention in Production:** Any attempt to inject post-diagnostic variables (like `xray_abnormal` or `crp_level`) into the JSON payload is stripped or rejected at the schema level, guaranteeing the model only evaluates approved primary-care predictors.
+* **Output Formatting:** Validated objects are converted via `.model_dump()` into a single-row Pandas DataFrame, evaluated by the pipeline, and returned as an `HTTP 200 OK` JSON response containing `"prediction"`, `"risk_probability"`, and `"assessment"` (`"High Risk"` or `"Low Risk"`). Unexpected runtime errors are caught and returned as `HTTP 400 Bad Request`.
+
+---
+
+### 4. Frontend UI & Clinical Triage Workflow (Streamlit)
+Complex, cluttered software interfaces cause cognitive fatigue and time delays—two major barriers to CDSS adoption in oncology. The frontend (`app.py`) was built in **Streamlit** with a focus on ergonomics, rapid data entry, and immediate visual interpretability.
+
+* **Thematic 4-Column Form (`st.form`):** To mirror standard medical history-taking and prevent unnecessary page reloads on every keystroke, all 25 inputs are wrapped inside `st.form("patient_data_form")` and distributed evenly across four parallel columns (`st.columns(4)`):
+  1. **Demographics & Vitals:** `age` (18–100), `gender` (Male/Female mapped to `1`/`0`), `bmi`, `oxygen_saturation` (%), `education_years`, and `income_level` (1–4).
+  2. **Smoking History:** `smoker` status, `smoking_years`, `cigarettes_per_day`, `pack_years`, and `passive_smoking`. **Dynamic Biological Constraint:** The maximum allowable value for `smoking_years` dynamically updates to match the patient's entered `age` (`max_value=int(age)`), making it impossible to enter biologically invalid smoking durations.
+  3. **Environmental & Medical:** `air_pollution_index` (AQI 0–300), `occupational_exposure`, `radon_exposure`, `family_history_cancer`, `asthma`, and `previous_tb`.
+  4. **Symptoms & Lifestyle:** First-line symptoms (`chronic_cough`, `chest_pain`, `shortness_of_breath`, `fatigue`) alongside `exercise_hours_per_week`, `diet_quality` (1–4), `alcohol_units_per_week`, and `healthcare_access` (1–4).
+* **Color-Coded Clinical Triage:** Once the clinician clicks **"Assess Risk"**, the UI translates the raw probability score into actionable clinical guidance:
+  * **Low Risk (`st.success` & `st.info`):** Renders a green banner with the exact probability (e.g., `Assessment: LOW RISK (16.4%)`) and a blue recommendation box (`Recommendation: Standard preventative care`), protecting healthy patients from unnecessary radiation and keeping imaging departments from becoming overloaded.
+  * **High Risk (`st.error` & `st.warning`):** Renders a red alert banner (e.g., `Assessment: HIGH RISK (75.1%)`) paired with an orange warning (`Recommendation: Immediate clinical follow-up and imaging advised`), prompting the primary care physician to immediately refer the patient for Low-Dose CT (LDCT) screening.
+* **Network Fault Tolerance:** The UI catches `requests.exceptions.ConnectionError` to display a clear message if the FastAPI backend is offline, and surfaces exact server error codes if a non-200 HTTP response occurs.
+
+---
+
+### 5. Containerization & Microservice Orchestration (Docker & Docker Compose)
+Hospital IT environments often suffer from "dependency drift" (differences in OS, Python interpreters, or library versions) and strict security constraints that make manual software installation impractical for medical staff. To ensure 100% computational reproducibility, the application was containerized into isolated microservices using **Docker**:
+
+* **Backend Container (`Dockerfile.api`):** Built on a lightweight `python:3.9-slim` Linux image. It installs dependencies with `--no-cache-dir` to minimize image footprint, copies only `api.py` and `xgboost_pipeline.joblib` into `/app`, exposes port `8000`, and launches the Uvicorn server (`0.0.0.0:8000`).
+* **Frontend Container (`Dockerfile.app`):** Also based on `python:3.9-slim`, isolating `app.py` in its own container environment, exposing Streamlit's default port `8501`, and binding the server to `0.0.0.0`.
+* **Orchestration (`docker-compose.yml`):** Connects and manages both containers via **Docker Compose**:
+  * **Startup Ordering (`depends_on`):** Ensures the `frontend` service waits until the `api` container is initialized before launching.
+  * **Internal Bridge Network (`dss-network`):** Establishes an isolated virtual bridge network. The Streamlit container communicates with the FastAPI container securely via Docker's internal DNS (`http://api:8000/predict`) rather than hardcoded IP addresses, keeping the ML engine shielded from unauthorized external network access while exposing the UI on port `8501`.
+  * **Zero-Configuration Deployment:** Enables any clinic or hospital workstation to spin up the entire three-tier system with a single command (`docker compose up --build`).
 ---
 
 ## 🚀 How to Run Instructions
