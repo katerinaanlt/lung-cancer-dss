@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    networks:
+      - dss-network
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    networks:
+      - dss-network
+networks:
+  dss-network:
+    driver: bridge
